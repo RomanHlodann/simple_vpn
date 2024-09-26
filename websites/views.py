@@ -152,13 +152,3 @@ def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> H
         return post_to_website(request, website_name, base_url, url, cors_headers, subpath)
 
     return HttpResponse('Де сторінка', status=404)
-
-
-def insert_base_tag(soup, url):
-    base_tag = soup.new_tag('base', href=url)
-    if soup.head:
-        soup.head.insert(0, base_tag)
-    else:
-        head_tag = soup.new_tag('head')
-        head_tag.insert(0, base_tag)
-        soup.insert(0, head_tag)
