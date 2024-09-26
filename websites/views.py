@@ -6,14 +6,14 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
-from django.urls.base import reverse
 from django.views import generic
-from urllib.parse import urljoin, urlparse, urlencode
+from urllib.parse import urljoin, urlparse
 
 from django.views.decorators.csrf import csrf_exempt
 
 from websites.models import Website
 from websites.forms import WebsiteCreateUpdateForm
+from websites.utils import update_links_and_forms, insert_base_tag
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -68,9 +68,56 @@ def ensure_https(url):
     return url
 
 
+def get_website(request, website_name, base_url, url, headers, subpath):
+    response = requests.get(url, headers=headers, stream=True)
+    response.raise_for_status()
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        insert_base_tag(soup, url)
+
+        update_links_and_forms(request, soup, base_url, website_name, subpath)
+
+        return StreamingHttpResponse(
+            str(soup),
+            content_type=response.headers.get('content-type'),
+            status=response.status_code,
+            reason=response.reason
+        )
+
+
+def post_to_website(request, website_name, base_url, url, cors_headers, subpath):
+    form_action = request.POST.get('form_action', url)
+    post_data = {key: value.encode('utf-8') if isinstance(value, str) else value for key, value in request.POST.items()}
+
+    post_headers = {
+        key: value.encode('utf-8') if isinstance(value, str) else value
+        for key, value in request.META.items()
+        if key.startswith("HTTP")
+    }
+
+    post_headers.update(cors_headers)
+
+    response = requests.post(form_action, data=post_data, headers=post_headers, stream=True)
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        insert_base_tag(soup, url)
+
+        update_links_and_forms(request, soup, base_url, website_name, subpath)
+
+        return StreamingHttpResponse(
+            str(soup),
+            content_type=response.headers.get('content-type'),
+            status=response.status_code,
+            reason=response.reason
+        )
+    else:
+        return HttpResponse('Не вдалося обробити запит', status=response.status_code)
+
 @csrf_exempt
 @login_required
-def get_website(request: HttpRequest, website_name: str, subpath: str = '') -> HttpResponse | StreamingHttpResponse:
+def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> HttpResponse | StreamingHttpResponse:
     website = Website.objects.filter(user=request.user, name__iexact=website_name).first()
 
     if not website:
@@ -87,8 +134,10 @@ def get_website(request: HttpRequest, website_name: str, subpath: str = '') -> H
 
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Origin, Content-Type, X-Auth-Token',
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Access-Control-Max-Age': '86400',
     }
 
     headers.update(cors_headers)
@@ -97,50 +146,10 @@ def get_website(request: HttpRequest, website_name: str, subpath: str = '') -> H
         return HttpResponse(status=204, headers=cors_headers)
 
     if request.method == "GET":
-        response = requests.get(url, headers=headers, stream=True)
-        response.raise_for_status()
-
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            insert_base_tag(soup, url)
-
-            update_links_and_forms(request, soup, base_url, website_name, subpath)
-
-            return StreamingHttpResponse(
-                str(soup),
-                content_type=response.headers.get('content-type'),
-                status=response.status_code,
-                reason=response.reason
-            )
+        return get_website(request, website_name, base_url, url, headers, subpath)
 
     elif request.method == "POST":
-        form_action = request.POST.get('form_action', url)
-        post_data = {key: value.encode('utf-8') if isinstance(value, str) else value for key, value in request.POST.items()}
-
-        post_headers = {
-            key: value.encode('utf-8') if isinstance(value, str) else value
-            for key, value in request.META.items()
-            if key.startswith("HTTP")
-        }
-
-        post_headers.update(cors_headers)
-
-        response = requests.post(form_action, data=post_data, headers=post_headers, stream=True)
-
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.content, 'html.parser')
-            insert_base_tag(soup, url)
-
-            update_links_and_forms(request, soup, base_url, website_name, subpath)
-
-            return StreamingHttpResponse(
-                str(soup),
-                content_type=response.headers.get('content-type'),
-                status=response.status_code,
-                reason=response.reason
-            )
-        else:
-            return HttpResponse('Не вдалося обробити запит', status=response.status_code)
+        return post_to_website(request, website_name, base_url, url, cors_headers, subpath)
 
     return HttpResponse('Де сторінка', status=404)
 
@@ -153,38 +162,3 @@ def insert_base_tag(soup, url):
         head_tag = soup.new_tag('head')
         head_tag.insert(0, base_tag)
         soup.insert(0, head_tag)
-
-
-def update_links_and_forms(request, soup, url, website_name, subpath):
-    for tag in soup.find_all(['a', 'form']):
-        if tag.name == 'a' and tag.has_attr('href'):
-            if url in tag['href']:
-                tag['href'] = tag['href'][len(url):]
-
-            if 'https:' in tag['href']:
-                continue
-
-            new_href = urljoin(subpath, tag['href'])
-            if new_href and new_href[0] != '/':
-                new_href = '/' + new_href
-            tag['href'] = request.build_absolute_uri(reverse("websites:get_website", args=[website_name, new_href]))
-
-        elif tag.name == 'form' and tag.has_attr('action'):
-            if url in tag['action']:
-                tag['action'] = tag['action'][len(url):]
-
-            if 'https:' in tag['action']:
-                continue
-
-            new_action = urljoin(subpath, tag['action'])
-            if new_action and new_action[0] != '/':
-                new_action = '/' + new_action
-            tag['action'] = request.build_absolute_uri(reverse("websites:get_website", args=[website_name, new_action]))
-
-            csrf_token = request.POST.get('csrfmiddlewaretoken') or request.COOKIES.get('csrftoken')
-            if csrf_token:
-                csrf_input = soup.new_tag('input', type='hidden', attrs={
-                    'name': 'csrfmiddlewaretoken',
-                    'value': csrf_token
-                })
-                tag.append(csrf_input)
