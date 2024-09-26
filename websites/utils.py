@@ -5,10 +5,10 @@ from django.urls.base import reverse
 def update_links_and_forms(request, soup, url, website_name, subpath):
     for tag in soup.find_all(['a', 'form']):
         if tag.name == 'a' and tag.has_attr('href'):
-            if url in tag['href']:
+            if tag['href'].startswith(url):
                 tag['href'] = tag['href'][len(url):]
 
-            if 'https:' in tag['href']:
+            if tag['href'].startswith('https:'):
                 continue
 
             new_href = urljoin(subpath, tag['href'])
@@ -19,10 +19,10 @@ def update_links_and_forms(request, soup, url, website_name, subpath):
             print(tag['href'])
 
         elif tag.name == 'form' and tag.has_attr('action'):
-            if url in tag['action']:
+            if tag['action'].startswith(url):
                 tag['action'] = tag['action'][len(url):]
 
-            if 'https:' in tag['action']:
+            if tag['action'].startswith('https:'):
                 continue
 
             new_action = urljoin(subpath, tag['action'])
