@@ -7,7 +7,7 @@ from django.http import HttpRequest, HttpResponse, StreamingHttpResponse, HttpRe
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import generic
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from django.views.decorators.csrf import csrf_exempt
 
@@ -68,6 +68,14 @@ def ensure_https(url):
     return url
 
 
+def ensure_base_path(base_url, subpath):
+    parsed_url = urlparse(base_url)
+    base_url = urlunparse((parsed_url.scheme, parsed_url.netloc, '', '', '', ''))
+    subpath = urljoin(parsed_url.path, subpath)
+
+    return base_url, subpath
+
+
 def get_website(request, website_name, base_url, url, headers, subpath):
     response = requests.get(url, headers=headers, stream=True)
     response.raise_for_status()
@@ -125,6 +133,8 @@ def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> H
         return HttpResponse('У вас немає такого сайту. Добавте.', status=404)
 
     base_url = ensure_https(website.url)
+    base_url, subpath = ensure_base_path(base_url, subpath)
+
     url = urljoin(base_url, subpath) if subpath else base_url
 
     headers = {
