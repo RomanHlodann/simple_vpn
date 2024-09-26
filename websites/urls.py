@@ -5,7 +5,7 @@ from websites.views import (
     WebsiteCreationView,
     WebsiteUpdateView,
     WebsiteDeleteView,
-    get_website,
+    vpn_website,
 )
 
 
@@ -15,7 +15,7 @@ urlpatterns = [
     path("websites/create/", WebsiteCreationView.as_view(), name="create"),
     path("websites/<int:pk>/update/", WebsiteUpdateView.as_view(), name="update"),
     path("websites/<int:pk>/delete/", WebsiteDeleteView.as_view(), name="delete"),
-    re_path(r'^(?P<website_name>[^/]+)/?(?P<subpath>.*)?$', get_website, name='get_website'),
+    re_path(r'^(?P<website_name>[^/]+)/?(?P<subpath>.*)?$', vpn_website, name='get_website'),
 ]
 
 

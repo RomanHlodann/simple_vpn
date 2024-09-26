@@ -115,6 +115,7 @@ def post_to_website(request, website_name, base_url, url, cors_headers, subpath)
     else:
         return HttpResponse('Не вдалося обробити запит', status=response.status_code)
 
+
 @csrf_exempt
 @login_required
 def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> HttpResponse | StreamingHttpResponse:
