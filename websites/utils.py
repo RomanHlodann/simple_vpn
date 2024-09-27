@@ -7,78 +7,33 @@ from django.urls.base import reverse
 from websites.models import Website
 
 
+def update_links(request, tag, tag_attr, parsed_base_url, main_domain, subpath, website_name):
+    tag[tag_attr] = tag[tag_attr].replace(r'\/', '/')
+    tag[tag_attr] = tag[tag_attr].replace(r'/\\', '/')
+    parsed_url = urlparse(tag[tag_attr])
+    domain = f"{parsed_base_url.scheme}://{parsed_url.netloc}"
+    if main_domain in domain:
+        tag[tag_attr] = tag[tag_attr][len(domain):]
+
+    if tag[tag_attr].startswith('https:'):
+        return
+
+    new_href = urljoin(subpath, tag[tag_attr])
+    if new_href and new_href[0] != '/':
+        new_href = '/' + new_href
+    tag[tag_attr] = request.build_absolute_uri(reverse("websites:get_website", args=[website_name, new_href]))
+
 
 def update_links_and_forms(request, soup, url, website_name, subpath):
+    parsed_base_url = urlparse(url)
+    main_domain = f"{parsed_base_url.netloc}"
+
     for tag in soup.find_all(['a', 'form', 'script']):
         if tag.name == 'a' and tag.has_attr('href'):
-            if tag['href'].startswith(url):
-                tag['href'] = tag['href'][len(url):]
-
-            if tag['href'].startswith('https:'):
-                continue
-
-            new_href = urljoin(subpath, tag['href'])
-            if new_href and new_href[0] != '/':
-                new_href = '/' + new_href
-            tag['href'] = request.build_absolute_uri(reverse("websites:get_website", args=[website_name, new_href]))
-
+            update_links(request, tag, 'href', parsed_base_url, main_domain, subpath, website_name)
 
         elif tag.name == 'form' and tag.has_attr('action'):
-            if tag['action'].startswith(url):
-                tag['action'] = tag['action'][len(url):]
-
-            if tag['action'].startswith('https:'):
-                continue
-
-            new_action = urljoin(subpath, tag['action'])
-            if new_action and new_action[0] != '/':
-                new_action = '/' + new_action
-            tag['action'] = request.build_absolute_uri(reverse("websites:get_website", args=[website_name, new_action]))
-
-            csrf_token = request.POST.get('csrfmiddlewaretoken') or request.COOKIES.get('csrftoken')
-            if csrf_token:
-                csrf_input = soup.new_tag('input', type='hidden', attrs={
-                    'name': 'csrfmiddlewaretoken',
-                    'value': csrf_token
-                })
-                tag.append(csrf_input)
-
-        elif tag.name == 'script':
-            if tag.string:
-
-                original_script = tag.string
-
-                original_script = original_script.replace(r'\/', '/')
-
-                urls = re.findall(r'https?://[^\s\'"<>]+|(/[^\s\'"<>]+)', original_script)
-
-                def change_url(match):
-                    url_to_modify = match.group(0)
-                    if url_to_modify.startswith(url):
-                        url_to_modify = url_to_modify[len(url):]
-
-                    if url_to_modify.startswith("http"):
-                        base_url = reverse('websites:get_source')
-                        query_params = urlencode({'path': url_to_modify, 'website_name': website_name})
-                        full_url = f"{base_url}?{query_params}"
-                        return request.build_absolute_uri(full_url)
-
-                    if url_to_modify and url_to_modify[0] != '/':
-                        url_to_modify = '/' + url_to_modify
-
-                    return request.build_absolute_uri(
-                        reverse("websites:get_website", args=[website_name, url_to_modify])
-                    )
-
-                modified_script = re.sub(
-                    r'https?://[^\s\'"<>]+|(/[^\s\'"<>]+)',  # Regex to find URLs
-                    lambda match: change_url(match),  # Call change_url for each match
-                    original_script
-                )
-
-                tag.string = modified_script
-
-                u = 1
+            update_links(request, tag, 'action', parsed_base_url, main_domain, subpath, website_name)
 
 
 def insert_base_tag(soup, url):

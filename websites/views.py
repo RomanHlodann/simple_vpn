@@ -1,4 +1,5 @@
 import requests
+import cloudscraper
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -56,16 +57,18 @@ class WebsiteDeleteView(LoginRequiredMixin, generic.DeleteView):
         return Website.objects.filter(user=self.request.user)
 
 
-
+session = cloudscraper.create_scraper()
 
 
 def get_website(request, website_name, base_url, url, subpath):
-    response = requests.get(url, stream=True)
+    response = session.get(url, stream=True)
     response.raise_for_status()
 
     if response.status_code == 200:
         soup = create_correct_soup(request, response, base_url, website_name, subpath, url)
         filtered_headers = filter_headers(response.headers)
+
+        filtered_headers['Content-Type'] = 'text/html; charset=utf-8'
 
         return StreamingHttpResponse(
             str(soup),
@@ -77,7 +80,8 @@ def get_website(request, website_name, base_url, url, subpath):
 
 def post_to_website(request, website_name, base_url, url, subpath):
     post_data = {key: value for key, value in request.POST.items()}
-    response = requests.post(url, data=post_data, stream=True)
+    response = session.post(url, data=post_data, stream=True)
+
     filtered_headers = filter_headers(response.headers)
 
     if response.status_code == 200:

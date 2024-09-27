@@ -5,7 +5,7 @@ from websites.views import (
     WebsiteCreationView,
     WebsiteUpdateView,
     WebsiteDeleteView,
-    vpn_website,
+    vpn_website
 )
 
 
