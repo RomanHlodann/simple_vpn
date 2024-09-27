@@ -1,19 +1,17 @@
 import requests
 
-from bs4 import BeautifulSoup
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpRequest, HttpResponse, StreamingHttpResponse, HttpResponseRedirect, JsonResponse
+from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import generic
-from urllib.parse import urljoin, urlparse, urlunparse
-
+from urllib.parse import urljoin
 from django.views.decorators.csrf import csrf_exempt
 
 from websites.models import Website
 from websites.forms import WebsiteCreateUpdateForm
-from websites.utils import update_links_and_forms, insert_base_tag
+from websites.utils import filter_headers, create_correct_soup, find_website, get_baseurl_and_path
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -58,65 +56,36 @@ class WebsiteDeleteView(LoginRequiredMixin, generic.DeleteView):
         return Website.objects.filter(user=self.request.user)
 
 
-def ensure_https(url):
-    url = url.strip()
-    parsed_url = urlparse(url)
-
-    if not parsed_url.scheme:
-        url = f"https://{url}"
-
-    return url
 
 
-def ensure_base_path(base_url, subpath):
-    parsed_url = urlparse(base_url)
-    base_url = urlunparse((parsed_url.scheme, parsed_url.netloc, '', '', '', ''))
-    subpath = urljoin(parsed_url.path, subpath)
 
-    return base_url, subpath
-
-
-def get_website(request, website_name, base_url, url, headers, subpath):
-    response = requests.get(url, headers=headers, stream=True)
+def get_website(request, website_name, base_url, url, subpath):
+    response = requests.get(url, stream=True)
     response.raise_for_status()
 
     if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
-        insert_base_tag(soup, url)
-
-        update_links_and_forms(request, soup, base_url, website_name, subpath)
+        soup = create_correct_soup(request, response, base_url, website_name, subpath, url)
+        filtered_headers = filter_headers(response.headers)
 
         return StreamingHttpResponse(
             str(soup),
-            content_type=response.headers.get('content-type'),
+            headers=filtered_headers,
             status=response.status_code,
             reason=response.reason
         )
 
 
-def post_to_website(request, website_name, base_url, url, cors_headers, subpath):
-    form_action = request.POST.get('form_action', url)
-    post_data = {key: value.encode('utf-8') if isinstance(value, str) else value for key, value in request.POST.items()}
-
-    post_headers = {
-        key: value.encode('utf-8') if isinstance(value, str) else value
-        for key, value in request.META.items()
-        if key.startswith("HTTP")
-    }
-
-    post_headers.update(cors_headers)
-
-    response = requests.post(form_action, data=post_data, headers=post_headers, stream=True)
+def post_to_website(request, website_name, base_url, url, subpath):
+    post_data = {key: value for key, value in request.POST.items()}
+    response = requests.post(url, data=post_data, stream=True)
+    filtered_headers = filter_headers(response.headers)
 
     if response.status_code == 200:
-        soup = BeautifulSoup(response.content, 'html.parser')
-        insert_base_tag(soup, url)
-
-        update_links_and_forms(request, soup, base_url, website_name, subpath)
+        soup = create_correct_soup(request, response, base_url, website_name, subpath, url)
 
         return StreamingHttpResponse(
             str(soup),
-            content_type=response.headers.get('content-type'),
+            headers=filtered_headers,
             status=response.status_code,
             reason=response.reason
         )
@@ -127,39 +96,21 @@ def post_to_website(request, website_name, base_url, url, cors_headers, subpath)
 @csrf_exempt
 @login_required
 def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> HttpResponse | StreamingHttpResponse:
-    website = Website.objects.filter(user=request.user, name__iexact=website_name).first()
+    website = find_website(request, website_name)
 
     if not website:
         return HttpResponse('У вас немає такого сайту. Добавте.', status=404)
 
-    base_url = ensure_https(website.url)
-    base_url, subpath = ensure_base_path(base_url, subpath)
-
+    base_url, subpath = get_baseurl_and_path(website, subpath)
     url = urljoin(base_url, subpath) if subpath else base_url
 
-    headers = {
-        'User-Agent': request.META.get('HTTP_USER_AGENT', 'Mozilla/5.0'),
-        'Referer': base_url,
-        'X-Requested-With': 'XMLHttpRequest',
-    }
-
-    cors_headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Origin, Content-Type, X-Auth-Token',
-        'Content-Type': 'application/json; charset=UTF-8',
-        'Access-Control-Max-Age': '86400',
-    }
-
-    headers.update(cors_headers)
-
     if request.method == "OPTIONS":
-        return HttpResponse(status=204, headers=cors_headers)
+        return requests.options(url, stream=True)
 
     if request.method == "GET":
-        return get_website(request, website_name, base_url, url, headers, subpath)
+        return get_website(request, website_name, base_url, url, subpath)
 
     elif request.method == "POST":
-        return post_to_website(request, website_name, base_url, url, cors_headers, subpath)
+        return post_to_website(request, website_name, base_url, url, subpath)
 
     return HttpResponse('Де сторінка', status=404)
