@@ -5,6 +5,8 @@ from django.contrib.auth import get_user_model
 class Website(models.Model):
     name = models.CharField(max_length=100)
     url = models.CharField(max_length=255)
+    transition_count = models.IntegerField(default=0)
+    bytes_count = models.IntegerField(default=0)
     user = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
