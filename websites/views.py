@@ -60,15 +60,19 @@ class WebsiteDeleteView(LoginRequiredMixin, generic.DeleteView):
 session = cloudscraper.create_scraper()
 
 
-def get_website(request, website_name, base_url, url, subpath):
+def get_website(request, website, base_url, url, subpath):
     response = session.get(url, stream=True)
     response.raise_for_status()
 
     if response.status_code == 200:
-        soup = create_correct_soup(request, response, base_url, website_name, subpath, url)
+        soup = create_correct_soup(request, response, base_url, website.name, subpath, url)
         filtered_headers = filter_headers(response.headers)
 
         filtered_headers['Content-Type'] = 'text/html; charset=utf-8'
+
+        website.transition_count += 1
+        website.bytes_count += len(str(soup))
+        website.save()
 
         return StreamingHttpResponse(
             str(soup),
@@ -78,14 +82,14 @@ def get_website(request, website_name, base_url, url, subpath):
         )
 
 
-def post_to_website(request, website_name, base_url, url, subpath):
+def post_to_website(request, website, base_url, url, subpath):
     post_data = {key: value for key, value in request.POST.items()}
     response = session.post(url, data=post_data, stream=True)
 
     filtered_headers = filter_headers(response.headers)
 
     if response.status_code == 200:
-        soup = create_correct_soup(request, response, base_url, website_name, subpath, url)
+        soup = create_correct_soup(request, response, base_url, website.name, subpath, url)
 
         return StreamingHttpResponse(
             str(soup),
@@ -112,9 +116,9 @@ def vpn_website(request: HttpRequest, website_name: str, subpath: str = '') -> H
         return requests.options(url, stream=True)
 
     if request.method == "GET":
-        return get_website(request, website_name, base_url, url, subpath)
+        return get_website(request, website, base_url, url, subpath)
 
     elif request.method == "POST":
-        return post_to_website(request, website_name, base_url, url, subpath)
+        return post_to_website(request, website, base_url, url, subpath)
 
     return HttpResponse('Де сторінка', status=404)
