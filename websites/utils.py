@@ -28,12 +28,10 @@ def update_links_and_forms(request, soup, url, website_name, subpath):
     parsed_base_url = urlparse(url)
     main_domain = f"{parsed_base_url.netloc}"
 
-    for tag in soup.find_all(['a', 'form', 'script']):
-        if tag.name == 'a' and tag.has_attr('href'):
-            update_links(request, tag, 'href', parsed_base_url, main_domain, subpath, website_name)
-
-        elif tag.name == 'form' and tag.has_attr('action'):
-            update_links(request, tag, 'action', parsed_base_url, main_domain, subpath, website_name)
+    for tag in soup.find_all(['a', 'form', 'button']):
+        for attr, value in tag.attrs.items():
+            if isinstance(value, str) and ('https' in value or value.startswith('/')):
+                update_links(request, tag, attr, parsed_base_url, main_domain, subpath, website_name)
 
 
 def insert_base_tag(soup, url):
